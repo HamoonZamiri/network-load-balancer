@@ -8,9 +8,9 @@ import (
 )
 
 func main() {
-	flag.Parse()
 	udp := flag.Bool("udp", false, "Use UDP instead of TCP")
 	serverAddr := flag.String("server", "localhost:8080", "Server address")
+	flag.Parse()
 
 	var protocol string = ""
 	if *udp {

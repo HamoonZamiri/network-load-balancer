@@ -8,11 +8,18 @@ import (
 )
 
 func handleRequest(conn net.Conn) {
-	defer conn.Close()
-
 	// Send a response to the client
-	response := "Hello from the server!"
-	fmt.Fprintf(conn, response)
+	for {
+		buffer := make([]byte, 1024)
+		bytesRead, err := conn.Read(buffer)
+		if err != nil {
+			log.Printf("Failed to read from client: %s", err)
+			return
+		}
+		request := string(buffer[:bytesRead])
+		log.Printf("Received request from client: %s", request)
+		fmt.Fprintf(conn, "Hello from server, you sent '%s'\n", request)
+	}
 }
 
 func main() {
