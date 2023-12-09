@@ -24,6 +24,19 @@ The load balancer is implemented in Go (Golang) and makes extensive use of the p
 
 ### Usage and Testing
 
+ **Simple Example Using One Server:**
+ Run backend server:
+ `go run server.go -server=localhost:8081`
+
+ Run load balancer:
+ `go run load_balancer.go -bind=localhost:8080 -balance=localhost:8081`
+ 
+ Run client:
+`go run client.go`
+
+Result in client terminal:
+`Response from load balancer:  Hello from the server!`
+
 ### Analysis
 
 ### Concluding Remarks
