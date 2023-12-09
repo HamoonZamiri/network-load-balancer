@@ -10,6 +10,8 @@ import (
 func main() {
 	flag.Parse()
 	udp := flag.Bool("udp", false, "Use UDP instead of TCP")
+	serverAddr := flag.String("server", "localhost:8080", "Server address")
+
 	var protocol string = ""
 	if *udp {
 		protocol = "udp"
@@ -17,7 +19,7 @@ func main() {
 		protocol = "tcp"
 	}
 
-	conn, err := net.Dial(protocol, "localhost:8080")
+	conn, err := net.Dial(protocol, *serverAddr)
 	if err != nil {
 		log.Fatal("Failed to connect to load balancer");
 	}
@@ -31,7 +33,7 @@ func main() {
 	for {
 		bytesRead, err := conn.Read(buffer)
 		if err != nil {
-			log.Fatal("Failed to read from load balancer");
+			log.Printf("Failed to read from load balancer");
 		}
 
 		fmt.Println("Response from load balancer: ", string(buffer[:bytesRead]))
