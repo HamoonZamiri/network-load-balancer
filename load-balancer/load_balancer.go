@@ -34,29 +34,6 @@ func (pool *BackendPool) String() string {
 	return strings.Join(pool.servers, ", ")
 }
 
-var (
-	bind    = flag.String("bind", "", "The address to bind on")
-	balance = flag.String("balance", "", "The backend servers to balance connections across, separated by commas")
-	pool    *BackendPool
-)
-
-func init() {
-	flag.Parse()
-
-	// Checks if bind flag is empty or is not provided
-	if *bind == "" {
-		log.Fatalln("Specify address to listen on with -bind")
-	}
-
-	// Checks if balance flag is empty
-	servers := strings.Split(*balance, ",")
-	if len(servers) == 1 && servers[0] == "" {
-		log.Fatalln("Specify backend servers with -balance if you want to use load balancing")
-	}
-
-	pool = &BackendPool{servers: servers}
-}
-
 // Handles a new incoming connection by selecting a backend server and establishing a connection
 func handleConnection(clientConn net.Conn, backendPool *BackendPool) {
 	serverAddr := backendPool.Choose()
@@ -88,6 +65,25 @@ func handleConnection(clientConn net.Conn, backendPool *BackendPool) {
 
 // Entry point of load balancer program
 func main() {
+	// Parse command line flags
+	bind := flag.String("bind", "", "The address to bind on")
+	balance := flag.String("balance", "", "The backend servers to balance connections across, separated by commas")
+	flag.Parse()
+
+	// Check if bind flag is empty or is not provided
+	if *bind == "" {
+		log.Fatalln("Specify address to listen on with -bind")
+	}
+
+	// Check if balance flag is empty
+	servers := strings.Split(*balance, ",")
+	if len(servers) == 1 && servers[0] == "" {
+		log.Fatalln("Specify backend servers with -balance if you want to use load balancing")
+	}
+
+	// Create the backend pool
+	pool := &BackendPool{servers: servers}
+
 	// Create a listener to accept incoming TCP connections
 	listener, err := net.Listen("tcp", *bind)
 	if err != nil {
