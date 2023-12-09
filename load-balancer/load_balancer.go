@@ -46,15 +46,27 @@ func handleConnection(clientConn net.Conn, backendPool *BackendPool) {
 		return
 	}
 
-	// Copy data from client to backend server
-	if _, err := io.Copy(serverConn, clientConn); err != nil {
-		log.Printf("Error copying from client to server: %s", err)
-	}
+	// Use WaitGroup to wait for copying goroutines to complete
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-	// Copy data from backend server to client
-	if _, err := io.Copy(clientConn, serverConn); err != nil {
-		log.Printf("Error copying from server to client: %s", err)
-	}
+	// Copy data between client and backend server
+	go func() {
+		if _, err := io.Copy(serverConn, clientConn); err != nil {
+			log.Printf("Error copying from client to server: %s", err)
+		}
+		wg.Done()
+	}()
+
+	go func() {
+		if _, err := io.Copy(clientConn, serverConn); err != nil {
+			log.Printf("Error copying from server to client: %s", err)
+		}
+		wg.Done()
+	}()
+
+	// Wait for copying goroutines to complete
+	wg.Wait()
 
 	// Close connections after copying is complete or in case of error
 	clientConn.Close()
@@ -78,7 +90,7 @@ func main() {
 	// Check if balance flag is empty
 	servers := strings.Split(*balance, ",")
 	if len(servers) == 1 && servers[0] == "" {
-		log.Fatalln("Specify backend servers with -balance if you want to use load balancing")
+		log.Fatalln("Specify backend servers with -balance")
 	}
 
 	// Create the backend pool
