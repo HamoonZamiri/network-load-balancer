@@ -34,8 +34,8 @@ func (pool *BackendPool) String() string {
 	return strings.Join(pool.servers, ", ")
 }
 
-// Handles a new incoming connection by selecting a backend server and establishing a connection
-func handleConnection(clientConn net.Conn, backendPool *BackendPool) {
+// Handle TCP connection
+func handleTCPConnection(clientConn net.Conn, backendPool *BackendPool) {
 	serverAddr := backendPool.Choose()
 	log.Printf("Routing connection to server: %s", serverAddr)
 
@@ -75,12 +75,97 @@ func handleConnection(clientConn net.Conn, backendPool *BackendPool) {
 	log.Printf("Connection completed for server: %s", serverAddr)
 }
 
+// Keep track of client-to-server mapping separately for UDP
+type UDPClientToServerMap struct {
+	mu             sync.Mutex
+	clientToServer map[string]string
+}
+
+// Choose a backend server based on the client's address
+func chooseServer(pool *BackendPool, clientAddr string, udpClientMap *UDPClientToServerMap) string {
+	// Check if the client has been assigned a server for UDP
+	udpClientMap.mu.Lock()
+	serverAddr, ok := udpClientMap.clientToServer[clientAddr]
+	udpClientMap.mu.Unlock()
+
+	if ok {
+		return serverAddr
+	}
+
+	// Choose a backend server using round-robin
+	return pool.Choose()
+}
+
+// Handle UDP connection
+func handleUDPConnection(clientConn net.PacketConn, backendPool *BackendPool, udpClientMap *UDPClientToServerMap, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	buffer := make([]byte, 1024)
+
+	for {
+		n, addr, err := clientConn.ReadFrom(buffer)
+		if err != nil {
+			log.Printf("Error reading from UDP client %s: %s", addr, err)
+			break
+		}
+
+		// Choose a backend server based on the client's address
+		serverAddr := chooseServer(backendPool, addr.String(), udpClientMap)
+
+		// Map client address to chosen server address for UDP
+		udpClientMap.mu.Lock()
+		udpClientMap.clientToServer[addr.String()] = serverAddr
+		udpClientMap.mu.Unlock()
+
+		// Dial a connection to the selected backend server
+		serverConn, err := net.Dial("udp", serverAddr)
+		if err != nil {
+			log.Printf("Failed to dial %s: %s", serverAddr, err)
+			continue
+		}
+
+		// Forward the client's message to the server
+		_, err = serverConn.Write(buffer[:n])
+		if err != nil {
+			log.Printf("Error writing to UDP server %s: %s", serverAddr, err)
+		}
+
+		// Reset the buffer before reading the response
+		buffer = make([]byte, 1024)
+
+		// Read the response from the server
+		_, err = serverConn.Read(buffer)
+		if err != nil {
+			log.Printf("Error reading from UDP server %s: %s", serverAddr, err)
+		}
+
+		// Send the server's response back to the client
+		_, err = clientConn.WriteTo(buffer, addr)
+		if err != nil {
+			log.Printf("Error writing to UDP client %s: %s", addr, err)
+		}
+
+		// Close the server connection
+		serverConn.Close()
+
+		log.Printf("Forwarded message from %s to server %s and back to %s", addr, serverAddr, addr)
+	}
+}
+
 // Entry point of load balancer program
 func main() {
 	// Parse command line flags
 	bind := flag.String("bind", "", "The address to bind on")
 	balance := flag.String("balance", "", "The backend servers to balance connections across, separated by commas")
+	udp := flag.Bool("udp", false, "Use UDP instead of TCP")
 	flag.Parse()
+
+	var protocol string = ""
+	if *udp {
+		protocol = "udp"
+	} else {
+		protocol = "tcp"
+	}
 
 	// Check if bind flag is empty or is not provided
 	if *bind == "" {
@@ -96,25 +181,50 @@ func main() {
 	// Create the backend pool
 	pool := &BackendPool{servers: servers}
 
-	// Create a listener to accept incoming TCP connections
-	listener, err := net.Listen("tcp", *bind)
-	if err != nil {
-		log.Fatalf("Failed to bind: %s", err)
-	}
+	var wg sync.WaitGroup
 
-	// Log information about the program's state
-	log.Printf("Listening on %s, balancing connections across: %s", *bind, pool)
-
-	// Continuously accept incoming client connections
-	for {
-		// Accept a new client connection
-		clientConn, err := listener.Accept()
+	// Create a listener to accept incoming connections
+	if protocol == "tcp" {
+		listener, err := net.Listen(protocol, *bind)
 		if err != nil {
-			log.Printf("Failed to accept: %s", err)
-			continue
+			log.Fatalf("Failed to bind: %s", err)
 		}
 
-		// Handle the client connection concurrently by selecting a backend server and establishing a connection
-		go handleConnection(clientConn, pool)
+		// Log information about the program's state
+		log.Printf("Listening on %s, balancing connections across: %s", *bind, pool)
+
+		// Continuously accept incoming client connections
+		for {
+			// Accept a new client connection
+			clientConn, err := listener.Accept()
+			if err != nil {
+				log.Printf("Failed to accept: %s", err)
+				continue
+			}
+
+			// Handle the client connection concurrently by selecting a backend server and establishing a connection
+			go handleTCPConnection(clientConn, pool)
+		}
+	} else {
+		// Create UDPClientToServerMap
+		udpClientMap := &UDPClientToServerMap{
+			clientToServer: make(map[string]string),
+		}
+		
+		clientConn, err := net.ListenPacket(protocol, *bind)
+		if err != nil {
+			log.Fatalf("Failed to bind UDP: %s", err)
+		}
+
+		// Log information about the program's state
+		log.Printf("Listening on %s, balancing connections across: %s", *bind, pool)
+		for {
+			// Handle the client connection
+			wg.Add(1)
+			go handleUDPConnection(clientConn, pool, udpClientMap, &wg)
+
+			// Wait for all goroutines to finish before exiting
+			wg.Wait()
+		}
 	}
 }
