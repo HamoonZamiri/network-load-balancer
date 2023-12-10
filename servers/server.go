@@ -82,12 +82,13 @@ func main() {
 		}
 
 		log.Printf("Server is listening on %s", *serverAddr)
+		for {
+			// Handle the client connection
+			wg.Add(1)
+			go handleUDPRequest(conn, &wg)
 
-		// Handle the client connection
-		wg.Add(1)
-		go handleUDPRequest(conn, &wg)
-
-		// Wait for all goroutines to finish before exiting
-		wg.Wait()
+			// Wait for all goroutines to finish before exiting
+			wg.Wait()
+		}
 	}
 }

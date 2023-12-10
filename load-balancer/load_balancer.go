@@ -34,7 +34,7 @@ func (pool *BackendPool) String() string {
 	return strings.Join(pool.servers, ", ")
 }
 
-// Handles a new incoming connection by selecting a backend server and establishing a connection
+// Handle TCP connection
 func handleTCPConnection(clientConn net.Conn, backendPool *BackendPool) {
 	serverAddr := backendPool.Choose()
 	log.Printf("Routing connection to server: %s", serverAddr)
@@ -75,67 +75,81 @@ func handleTCPConnection(clientConn net.Conn, backendPool *BackendPool) {
 	log.Printf("Connection completed for server: %s", serverAddr)
 }
 
-// Handles a new incoming connection by selecting a backend server and establishing a connection
-func handleUDPConnection(clientConn net.PacketConn, backendPool *BackendPool, wg *sync.WaitGroup) {
-	defer wg.Done()
+// Keep track of client-to-server mapping separately for UDP
+type UDPClientToServerMap struct {
+	mu             sync.Mutex
+	clientToServer map[string]string
+}
 
-	serverAddr := backendPool.Choose()
-	log.Printf("Routing connection to server: %s", serverAddr)
+// Choose a backend server based on the client's address
+func chooseServer(pool *BackendPool, clientAddr string, udpClientMap *UDPClientToServerMap) string {
+	// Check if the client has been assigned a server for UDP
+	udpClientMap.mu.Lock()
+	serverAddr, ok := udpClientMap.clientToServer[clientAddr]
+	udpClientMap.mu.Unlock()
 
-	serverConn, err := net.Dial("udp", serverAddr)
-	if err != nil {
-		clientConn.Close()
-		log.Printf("Failed to dial %s: %s", serverAddr, err)
-		return
+	if ok {
+		return serverAddr
 	}
 
-	// Use WaitGroup to wait for copying goroutines to complete
-	var wgc sync.WaitGroup
-	wgc.Add(2)
+	// Choose a backend server using round-robin
+	return pool.Choose()
+}
 
-	// Copy data between client and backend server
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			n, addr, err := clientConn.ReadFrom(buf)
-			if err != nil {
-				log.Printf("Error reading from UDP client %s: %s", addr, err)
-				break
-			}
-			_, err = serverConn.Write(buf[:n])
-			if err != nil {
-				log.Printf("Error writing to UDP server %s: %s", addr, err)
-				break
-			}
+// Handle UDP connection
+func handleUDPConnection(clientConn net.PacketConn, backendPool *BackendPool, udpClientMap *UDPClientToServerMap, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	buffer := make([]byte, 1024)
+
+	for {
+		n, addr, err := clientConn.ReadFrom(buffer)
+		if err != nil {
+			log.Printf("Error reading from UDP client %s: %s", addr, err)
+			break
 		}
-		wgc.Done()
-	}()
 
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			n, err := serverConn.Read(buf)
-			if err != nil {
-				log.Printf("Error reading from UDP server: %s", err)
-				break
-			}
-			_, err = clientConn.WriteTo(buf[:n], serverConn.LocalAddr())
-			if err != nil {
-				log.Printf("Error writing to UDP client: %s", err)
-				break
-			}
+		// Choose a backend server based on the client's address
+		serverAddr := chooseServer(backendPool, addr.String(), udpClientMap)
+
+		// Map client address to chosen server address for UDP
+		udpClientMap.mu.Lock()
+		udpClientMap.clientToServer[addr.String()] = serverAddr
+		udpClientMap.mu.Unlock()
+
+		// Dial a connection to the selected backend server
+		serverConn, err := net.Dial("udp", serverAddr)
+		if err != nil {
+			log.Printf("Failed to dial %s: %s", serverAddr, err)
+			continue
 		}
-		wgc.Done()
-	}()
 
-	// Wait for copying goroutines to complete
-	wgc.Wait()
+		// Forward the client's message to the server
+		_, err = serverConn.Write(buffer[:n])
+		if err != nil {
+			log.Printf("Error writing to UDP server %s: %s", serverAddr, err)
+		}
 
-	// Close connections after copying is complete or in case of error
-	clientConn.Close()
-	serverConn.Close()
+		// Reset the buffer before reading the response
+		buffer = make([]byte, 1024)
 
-	log.Printf("Connection completed for server: %s", serverAddr)
+		// Read the response from the server
+		_, err = serverConn.Read(buffer)
+		if err != nil {
+			log.Printf("Error reading from UDP server %s: %s", serverAddr, err)
+		}
+
+		// Send the server's response back to the client
+		_, err = clientConn.WriteTo(buffer, addr)
+		if err != nil {
+			log.Printf("Error writing to UDP client %s: %s", addr, err)
+		}
+
+		// Close the server connection
+		serverConn.Close()
+
+		log.Printf("Forwarded message from %s to server %s and back to %s", addr, serverAddr, addr)
+	}
 }
 
 // Entry point of load balancer program
@@ -192,6 +206,11 @@ func main() {
 			go handleTCPConnection(clientConn, pool)
 		}
 	} else {
+		// Create UDPClientToServerMap
+		udpClientMap := &UDPClientToServerMap{
+			clientToServer: make(map[string]string),
+		}
+		
 		clientConn, err := net.ListenPacket(protocol, *bind)
 		if err != nil {
 			log.Fatalf("Failed to bind UDP: %s", err)
@@ -199,12 +218,13 @@ func main() {
 
 		// Log information about the program's state
 		log.Printf("Listening on %s, balancing connections across: %s", *bind, pool)
+		for {
+			// Handle the client connection
+			wg.Add(1)
+			go handleUDPConnection(clientConn, pool, udpClientMap, &wg)
 
-		// Handle the client connection
-		wg.Add(1)
-		go handleUDPConnection(clientConn, pool, &wg)
-
-		// Wait for all goroutines to finish before exiting
-		wg.Wait()
+			// Wait for all goroutines to finish before exiting
+			wg.Wait()
+		}
 	}
 }
