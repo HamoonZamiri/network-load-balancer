@@ -10,7 +10,7 @@ import (
 
 func handleRequest(conn net.Conn) {
 	// Send a response to the client
-	
+	defer conn.Close()
 	for {
 		buffer := make([]byte, 1024)
 		bytesRead, err := conn.Read(buffer)
@@ -18,7 +18,7 @@ func handleRequest(conn net.Conn) {
 		if err != nil {
 			// The health checks will close the connection and we don't want to log an error
 			// everytime the load balancer sends a health check so we ignore and return from EOF errors
-			if err == io.EOF || err == io.ErrUnexpectedEOF{
+			if err == io.EOF || err == io.ErrUnexpectedEOF || err == io.ErrClosedPipe{
 				return
 			}
 

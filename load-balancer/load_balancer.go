@@ -62,10 +62,10 @@ func (pool *BackendPool) Choose() string {
 	defer pool.mu.Unlock()
 
 	idx := pool.counter % len(pool.servers)
-
+	pool.counter++
 	for !pool.healthChecks[pool.servers[idx]] {
-		pool.counter++
 		idx = pool.counter % len(pool.servers)
+		pool.counter++
 	}
 
 	return pool.servers[idx]

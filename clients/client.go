@@ -1,10 +1,12 @@
 package main
 
 import (
-	"fmt"
-	"net"
-	"log"
+	"bufio"
 	"flag"
+	"fmt"
+	"log"
+	"net"
+	"os"
 )
 
 func main() {
@@ -29,6 +31,7 @@ func main() {
 	fmt.Fprintf(conn, message + "\n")
 
 	buffer := make([]byte, 1024)
+	reader := bufio.NewReader(os.Stdin)
 
 	for {
 		bytesRead, err := conn.Read(buffer)
@@ -37,7 +40,7 @@ func main() {
 		}
 
 		fmt.Println("Response from load balancer: ", string(buffer[:bytesRead]))
-		fmt.Scanln(&message)
+		message, _ := reader.ReadString('\n')
 		fmt.Fprint(conn, message)
 
 	}
