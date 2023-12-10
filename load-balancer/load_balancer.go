@@ -2,11 +2,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Represents a pool of backend servers for load balancing
@@ -14,6 +16,44 @@ type BackendPool struct {
 	servers []string
 	counter int
 	mu      sync.Mutex
+	healthChecks map[string]bool
+}
+
+func (pool *BackendPool) HealthCheck() {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	for _, server := range pool.servers {
+		conn, err := net.Dial("tcp", server)
+		prev := pool.healthChecks[server]
+
+		if err != nil {
+			pool.healthChecks[server] = false
+			log.Printf("Server %s is down", server)
+		} else {
+			pool.healthChecks[server] = true
+			fmt.Fprintf(conn, "Health Check\n")
+		}
+
+		if prev && !pool.healthChecks[server] {
+			log.Printf("Server %s has gone down", server)
+		}
+		if !prev && pool.healthChecks[server] {
+			log.Printf("Server %s has come back up", server)
+		}
+		if conn != nil {
+			conn.Close()
+		}
+	}
+
+}
+
+func (pool *BackendPool) HealthCheckLoop() {
+	const healthCheckInterval = 5 * time.Second
+	for {
+		pool.HealthCheck()
+		time.Sleep(healthCheckInterval)
+	}
 }
 
 // Selects a backend server from the pool using a round-robin strategy
@@ -22,7 +62,12 @@ func (pool *BackendPool) Choose() string {
 	defer pool.mu.Unlock()
 
 	idx := pool.counter % len(pool.servers)
-	pool.counter++
+
+	for !pool.healthChecks[pool.servers[idx]] {
+		pool.counter++
+		idx = pool.counter % len(pool.servers)
+	}
+
 	return pool.servers[idx]
 }
 
@@ -32,6 +77,13 @@ func (pool *BackendPool) String() string {
 	defer pool.mu.Unlock()
 
 	return strings.Join(pool.servers, ", ")
+}
+
+func (pool *BackendPool) initializeHealthCheck() {
+	pool.healthChecks = make(map[string]bool)
+	for _, server := range pool.servers {
+		pool.healthChecks[server] = false
+	}
 }
 
 // Handles a new incoming connection by selecting a backend server and establishing a connection
@@ -95,6 +147,7 @@ func main() {
 
 	// Create the backend pool
 	pool := &BackendPool{servers: servers}
+	pool.initializeHealthCheck()
 
 	// Create a listener to accept incoming TCP connections
 	listener, err := net.Listen("tcp", *bind)
@@ -107,6 +160,9 @@ func main() {
 
 	// Continuously accept incoming client connections
 	for {
+		// Every 5 seconds execute the health check in a go routine concurrently
+		go pool.HealthCheckLoop()
+
 		// Accept a new client connection
 		clientConn, err := listener.Accept()
 		if err != nil {

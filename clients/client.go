@@ -38,7 +38,7 @@ func main() {
 
 		fmt.Println("Response from load balancer: ", string(buffer[:bytesRead]))
 		fmt.Scanln(&message)
-		fmt.Fprintf(conn, message + "\n")
+		fmt.Fprint(conn, message)
 
 	}
 }
