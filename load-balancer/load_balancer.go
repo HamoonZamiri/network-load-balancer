@@ -19,12 +19,12 @@ type BackendPool struct {
 	healthChecks map[string]bool
 }
 
-func (pool *BackendPool) HealthCheck() {
+func (pool *BackendPool) HealthCheck(protocol string) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
 	for _, server := range pool.servers {
-		conn, err := net.Dial("tcp", server)
+		conn, err := net.Dial(protocol, server)
 		prev := pool.healthChecks[server]
 
 		if err != nil {
@@ -48,10 +48,10 @@ func (pool *BackendPool) HealthCheck() {
 
 }
 
-func (pool *BackendPool) HealthCheckLoop() {
+func (pool *BackendPool) HealthCheckLoop(protocol string) {
 	const healthCheckInterval = 5 * time.Second
 	for {
-		pool.HealthCheck()
+		pool.HealthCheck(protocol)
 		time.Sleep(healthCheckInterval)
 	}
 }
@@ -250,7 +250,7 @@ func main() {
 	  // Continuously accept incoming client connections
     for {
       // Every 5 seconds execute the health check in a go routine concurrently
-      go pool.HealthCheckLoop()
+      go pool.HealthCheckLoop(protocol)
 
       clientConn, err := listener.Accept()
       if err != nil {
@@ -277,6 +277,8 @@ func main() {
       log.Printf("Listening on %s, balancing connections across: %s", *bind, pool)
 
       for {
+		// Every 5 seconds execute the health check in a go routine concurrently
+		go pool.HealthCheckLoop(protocol)
         // Handle the client connection
         wg.Add(1)
         go handleUDPConnection(clientConn, pool, udpClientMap, &wg)
