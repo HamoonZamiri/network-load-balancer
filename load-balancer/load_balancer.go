@@ -247,44 +247,44 @@ func main() {
 		// Log information about the program's state
 		log.Printf("Listening on %s, balancing connections across: %s", *bind, pool)
 
-	  // Continuously accept incoming client connections
-    for {
-      // Every 5 seconds execute the health check in a go routine concurrently
-      go pool.HealthCheckLoop(protocol)
+		// Continuously accept incoming client connections
+		for {
+			// Every 5 seconds execute the health check in a go routine concurrently
+			go pool.HealthCheckLoop(protocol)
 
-      clientConn, err := listener.Accept()
-      if err != nil {
-        log.Printf("Failed to accept: %s", err)
-        continue
-      }
+			clientConn, err := listener.Accept()
+			if err != nil {
+				log.Printf("Failed to accept: %s", err)
+				continue
+			}
 
-      // Handle the client connection concurrently by selecting a backend server and establishing a connection
-      go handleTCPConnection(clientConn, pool)
-      }
+			// Handle the client connection concurrently by selecting a backend server and establishing a connection
+			go handleTCPConnection(clientConn, pool)
+		}
 	} else {
 		  // Create UDPClientToServerMap
 		  udpClientMap := &UDPClientToServerMap{
 			  clientToServer: make(map[string]string),
 		  }
 		
-      clientConn, err := net.ListenPacket(protocol, *bind)
+		clientConn, err := net.ListenPacket(protocol, *bind)
 
-      if err != nil {
-        log.Fatalf("Failed to bind UDP: %s", err)
-      }
+		if err != nil {
+			log.Fatalf("Failed to bind UDP: %s", err)
+		}
 
-      // Log information about the program's state
-      log.Printf("Listening on %s, balancing connections across: %s", *bind, pool)
+		// Log information about the program's state
+		log.Printf("Listening on %s, balancing connections across: %s", *bind, pool)
 
-      for {
-		// Every 5 seconds execute the health check in a go routine concurrently
-		go pool.HealthCheckLoop(protocol)
-        // Handle the client connection
-        wg.Add(1)
-        go handleUDPConnection(clientConn, pool, udpClientMap, &wg)
+		for {
+			// Every 5 seconds execute the health check in a go routine concurrently
+			go pool.HealthCheckLoop(protocol)
+			// Handle the client connection
+			wg.Add(1)
+			go handleUDPConnection(clientConn, pool, udpClientMap, &wg)
 
-        // Wait for all goroutines to finish before exiting
-        wg.Wait()
-      }
+			// Wait for all goroutines to finish before exiting
+			wg.Wait()
+		}
 	}
 }
