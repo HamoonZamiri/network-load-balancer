@@ -3,7 +3,7 @@
 ### Description
 
 This project was created with the intent of exploring Computer Networks specifically in
-relation to the transport layer (OSI layer 4) and load balancing. The project is a simple 
+relation to the transport layer (OSI layer 4) and load balancing. The project is a simple
 TCP/UDP load balancer that supports the following features:
 
 -   Round Robin Load Balancing of multiple servers
@@ -24,20 +24,22 @@ The load balancer is implemented in Go (Golang) and makes extensive use of the p
 
 ### Usage and Testing
 
+From the root directory, run the following commands to test the load balancer:
+
  **Simple TCP Example Using One Server:**
  1. Run backend server:
  ```bash
- go run server.go -server=localhost:8081
+ go run servers/server.go -server=localhost:8081
  ```
 
  2. Run load balancer:
  ```bash
- go run load_balancer.go -bind=localhost:8080 -balance=localhost:8081
+ go run load-balancer/load_balancer.go -bind=localhost:8080 -balance=localhost:8081
  ```
- 
+
  3. Run client:
 ```bash
-go run client.go
+go run clients/client.go
 ```
 
 Result in client terminal:
@@ -47,7 +49,7 @@ Response from load balancer:  Hello from server, you sent First message to load 
 
 **Running with UDP and/or Multiple Servers:**
 -   In order to run with UDP, simply add the `-udp` flag when running the server, load balancer, and client.
--   In order to connect the load balancer with several servers, run the load balancer like this: 
+-   In order to connect the load balancer with several servers, run the load balancer like this:
  ```bash
  go run load_balancer.go -bind=localhost:8080 -balance=localhost:8081,localhost:8082
  ```
