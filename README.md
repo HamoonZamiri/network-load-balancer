@@ -51,7 +51,7 @@ Response from load balancer:  Hello from server, you sent First message to load 
 -   In order to run with UDP, simply add the `-udp` flag when running the server, load balancer, and client.
 -   In order to connect the load balancer with several servers, run the load balancer like this:
  ```bash
- go run load_balancer.go -bind=localhost:8080 -balance=localhost:8081,localhost:8082
+ go run load-balancer/load_balancer.go -bind=localhost:8080 -balance=localhost:8081,localhost:8082
  ```
 
 ### Analysis
