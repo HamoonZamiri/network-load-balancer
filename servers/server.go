@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync"
@@ -10,16 +11,25 @@ import (
 
 func handleTCPRequest(conn net.Conn) {
 	// Send a response to the client
+	defer conn.Close()
 	for {
 		buffer := make([]byte, 1024)
 		bytesRead, err := conn.Read(buffer)
+
 		if err != nil {
+			// The health checks will close the connection and we don't want to log an error
+			// everytime the load balancer sends a health check so we ignore and return from EOF errors
+			if err == io.EOF || err == io.ErrUnexpectedEOF || err == io.ErrClosedPipe{
+				return
+			}
+
 			log.Printf("Failed to read from client: %s", err)
 			return
 		}
+
 		request := string(buffer[:bytesRead])
 		log.Printf("Received request from client: %s", request)
-		fmt.Fprintf(conn, "Hello from server, you sent '%s'\n", request)
+		fmt.Fprintf(conn, "Hello from server, you sent %s", request)
 	}
 }
 
