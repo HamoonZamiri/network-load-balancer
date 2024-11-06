@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -9,20 +8,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	c "example/network-load-balancer/config"
 )
 
 // Represents a pool of backend servers for load balancing
 type BackendPool struct {
 	healthChecks map[string]bool
+	servers      []string
 	counter      int
 	mu           sync.Mutex
-	servers      []string
-}
-
-type Config struct {
-	Protocol    string // tcp | udp
-	BindAddress string
-	Servers     []string
 }
 
 func (pool *BackendPool) HealthCheck(protocol string) {
@@ -134,8 +129,8 @@ func handleTCPConnection(clientConn net.Conn, backendPool *BackendPool) {
 
 // Keep track of client-to-server mapping separately for UDP
 type UDPClientToServerMap struct {
-	mu             sync.Mutex
 	clientToServer map[string]string
+	mu             sync.Mutex
 }
 
 // Choose a backend server based on the client's address
@@ -209,27 +204,27 @@ func handleUDPConnection(clientConn net.PacketConn, backendPool *BackendPool, ud
 	}
 }
 
-func Run(config Config) error {
+func Run() error {
 	// Create the backend pool
-	pool := &BackendPool{servers: config.Servers}
+	pool := &BackendPool{servers: c.Config.Servers}
 	pool.initializeHealthCheck()
 
 	var wg sync.WaitGroup
 
 	// Create a listener to accept incoming connections
-	if config.Protocol == "tcp" {
-		listener, err := net.Listen(config.Protocol, config.BindAddress)
+	if c.Config.Protocol == "tcp" {
+		listener, err := net.Listen(c.Config.Protocol, c.Config.BindAddress)
 		if err != nil {
 			return err
 		}
 
 		// Log information about the program's state
-		log.Printf("Listening on %s, balancing connections across: %s", config.BindAddress, pool)
+		log.Printf("Listening on %s, balancing connections across: %s", c.Config.BindAddress, pool)
 
 		// Continuously accept incoming client connections
 		for {
 			// Every 5 seconds execute the health check in a go routine concurrently
-			go pool.HealthCheckLoop(config.Protocol)
+			go pool.HealthCheckLoop(c.Config.Protocol)
 
 			clientConn, err := listener.Accept()
 			if err != nil {
@@ -246,17 +241,17 @@ func Run(config Config) error {
 			clientToServer: make(map[string]string),
 		}
 
-		clientConn, err := net.ListenPacket(config.Protocol, config.BindAddress)
+		clientConn, err := net.ListenPacket(c.Config.Protocol, c.Config.BindAddress)
 		if err != nil {
 			log.Fatalf("Failed to bind UDP: %s", err)
 		}
 
 		// Log information about the program's state
-		log.Printf("Listening on %s, balancing connections across: %s", config.BindAddress, pool)
+		log.Printf("Listening on %s, balancing connections across: %s", c.Config.BindAddress, pool)
 
 		for {
 			// Every 5 seconds execute the health check in a go routine concurrently
-			go pool.HealthCheckLoop(config.Protocol)
+			go pool.HealthCheckLoop(c.Config.Protocol)
 			// Handle the client connection
 			wg.Add(1)
 			go handleUDPConnection(clientConn, pool, udpClientMap, &wg)
@@ -265,39 +260,12 @@ func Run(config Config) error {
 			wg.Wait()
 		}
 	}
-	return nil
 }
 
 // Entry point of load balancer program
 func main() {
-	// Parse command line flags
-	bind := flag.String("bind", "", "The address to bind on")
-	balance := flag.String("balance", "", "The backend servers to balance connections across, separated by commas")
-	udp := flag.Bool("udp", false, "Use UDP instead of TCP")
-	flag.Parse()
-
-	// Check if bind flag is empty or is not provided
-	if *bind == "" {
-		log.Fatalln("Specify address to listen on with -bind")
-	}
-
-	// Check if balance flag is empty
-	servers := strings.Split(*balance, ",")
-	if len(servers) == 1 && servers[0] == "" || len(servers) == 0 {
-		log.Fatalln("Specify backend servers with -balance")
-	}
-
-	config := Config{
-		Protocol:    "tcp",
-		BindAddress: *bind,
-		Servers:     servers,
-	}
-
-	if *udp {
-		config.Protocol = "udp"
-	}
-
-	if err := Run(config); err != nil {
+	c.SetConfig()
+	if err := Run(); err != nil {
 		log.Fatalf("Run: %v", err)
 	}
 }
