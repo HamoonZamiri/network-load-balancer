@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"example/network-load-balancer/config"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestLoadBalancerWithTCP(t *testing.T) {
@@ -33,9 +35,7 @@ func TestLoadBalancerWithTCP(t *testing.T) {
 	client2Response := runTestClient(t, "localhost:8080")
 
 	// Assert responses
-	if client1Response == client2Response {
-		t.Errorf("Expected different responses, got %s and %s", client1Response, client2Response)
-	}
+	assert.NotEqual(t, client1Response, client2Response)
 }
 
 func startTestServer(t *testing.T, address string) net.Listener {
